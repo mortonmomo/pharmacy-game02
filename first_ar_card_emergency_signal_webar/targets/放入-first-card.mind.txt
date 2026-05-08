@@ -1,1 +1,0 @@
-請用 tools/generate-target.html 將 assets/target_card_front.png 編譯成 first-card.mind，然後放在這個 targets 資料夾。
