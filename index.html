@@ -9,7 +9,7 @@
     #status {
       position: fixed; z-index: 9999; left: 12px; right: 12px; bottom: 12px;
       padding: 12px 14px; border-radius: 14px; color: white;
-      background: rgba(0,0,0,.68); border: 1px solid rgba(255,255,255,.24);
+      background: rgba(0,0,0,.72); border: 1px solid rgba(255,255,255,.24);
       font-size: 14px; line-height: 1.5; white-space: pre-wrap;
     }
     #replay {
@@ -32,7 +32,7 @@
   <div id="fallback">
     <div>
       <img src="./assets/target_card_front.png" alt="AR target preview">
-      <p>正在載入 WebAR。若長時間停在這裡，請開啟 <b>diagnostics.html</b> 檢查檔案與 CDN。</p>
+      <p>正在建立 AR 辨識資料。第一次開啟會需要 10–60 秒。若長時間停住，請開 diagnostics.html 檢查。</p>
     </div>
   </div>
   <div id="status">初始化中……</div>
@@ -41,6 +41,8 @@
     const statusBox = document.getElementById("status");
     const status = (msg) => { statusBox.textContent = msg; console.log(msg); };
     const addStatus = (msg) => { statusBox.textContent += "\n" + msg; console.log(msg); };
+
+    const TARGET_IMAGE = "./assets/target_card_front.png";
 
     async function checkFile(path, label) {
       try {
@@ -70,7 +72,7 @@
         try {
           addStatus(`載入 ${name}: ${url}`);
           await loadScript(url);
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise(r => setTimeout(r, 250));
           if (!testFn || testFn()) {
             addStatus(`✓ ${name} 載入成功`);
             return true;
@@ -83,6 +85,35 @@
       return false;
     }
 
+    function loadImage(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("target 圖載入失敗：" + url));
+        img.src = url + "?v=" + Date.now();
+      });
+    }
+
+    async function buildMindTargetUrl() {
+      if (!(window.MINDAR && window.MINDAR.IMAGE && window.MINDAR.IMAGE.Compiler)) {
+        throw new Error("MindAR 編譯器沒有成功載入，無法自動產生辨識檔。");
+      }
+
+      status("正在載入 target 圖並自動編譯 AR 辨識資料……\n第一次開啟可能需要 10–60 秒。");
+      const img = await loadImage(TARGET_IMAGE);
+      addStatus(`target 圖尺寸：${img.width} × ${img.height}`);
+
+      const compiler = new window.MINDAR.IMAGE.Compiler();
+      await compiler.compileImageTargets([img], (progress) => {
+        status(`正在自動編譯 AR 辨識資料：${Math.round(progress * 100)}%\n完成後會自動啟動相機。`);
+      });
+
+      const exportedBuffer = await compiler.exportData();
+      const blob = new Blob([exportedBuffer], { type: "application/octet-stream" });
+      return URL.createObjectURL(blob);
+    }
+
     async function boot() {
       status("檢查專案檔案……");
       const required = [
@@ -92,15 +123,12 @@
         ["./assets/distress_message_box.png", "求救訊息框"],
         ["./assets/dialog_kenbao_question.png", "健寶驚訝對話框"],
         ["./assets/dialog_kenbao_response.png", "健寶回應對話框"],
-        ["./assets/hologram_scanline.png", "hologram 掃描線"],
-        ["./targets/first-card.mind", "MindAR 辨識檔 first-card.mind"]
+        ["./assets/hologram_scanline.png", "hologram 掃描線"]
       ];
       let ok = true;
-      for (const [path, label] of required) {
-        ok = await checkFile(path, label) && ok;
-      }
+      for (const [path, label] of required) ok = await checkFile(path, label) && ok;
       if (!ok) {
-        addStatus("\n有檔案讀取失敗。最常見是：還沒把 first-card.mind 放進 targets/，或 GitHub Pages 上傳路徑錯了。");
+        addStatus("\n有素材檔案讀取失敗。請檢查 GitHub Pages 路徑與 assets 資料夾。");
         return;
       }
 
@@ -109,31 +137,47 @@
         "https://aframe.io/releases/1.5.0/aframe.min.js",
         "https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe-master.min.js"
       ], () => !!window.AFRAME);
-
       if (!aframeOK) {
         addStatus("\nA-Frame 載入失敗。可能是網路或 CDN 被擋。");
         return;
       }
 
-      const mindarOK = await loadFirstAvailable("MindAR A-Frame", [
+      const mindarAFrameOK = await loadFirstAvailable("MindAR A-Frame", [
         "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js",
         "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"
       ], () => window.AFRAME && AFRAME.components && (AFRAME.components["mindar-image"] || AFRAME.components["mindar-image-target"]));
+      if (!mindarAFrameOK) {
+        addStatus("\nMindAR A-Frame 載入失敗。可能是 CDN 被擋。");
+        return;
+      }
 
-      if (!mindarOK) {
-        addStatus("\nMindAR 載入失敗。可能是 CDN 被擋。可換網路，或改用 Netlify/Vercel。");
+      const mindarCompilerOK = await loadFirstAvailable("MindAR Compiler", [
+        "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js",
+        "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image.prod.js"
+      ], () => window.MINDAR && window.MINDAR.IMAGE && window.MINDAR.IMAGE.Compiler);
+      if (!mindarCompilerOK) {
+        addStatus("\nMindAR Compiler 載入失敗。無法自動產生辨識檔。");
+        return;
+      }
+
+      let mindTargetUrl;
+      try {
+        mindTargetUrl = await buildMindTargetUrl();
+      } catch (e) {
+        status("自動編譯 AR 辨識資料失敗：" + e.message);
+        console.error(e);
         return;
       }
 
       document.getElementById("fallback").style.display = "none";
-      createScene();
+      createScene(mindTargetUrl);
     }
 
-    function createScene() {
-      status("WebAR 載入完成。請允許相機權限，並對準 target_card_front.png。");
+    function createScene(mindTargetUrl) {
+      status("WebAR 已建立。請允許相機權限，並用手機對準 target_card_front.png。");
 
       const scene = document.createElement("a-scene");
-      scene.setAttribute("mindar-image", "imageTargetSrc: ./targets/first-card.mind; filterMinCF:0.0001; filterBeta:0.001; warmupTolerance:5; missTolerance:5;");
+      scene.setAttribute("mindar-image", `imageTargetSrc: ${mindTargetUrl}; filterMinCF:0.0001; filterBeta:0.001; warmupTolerance:5; missTolerance:5;`);
       scene.setAttribute("color-space", "sRGB");
       scene.setAttribute("renderer", "colorManagement: true, physicallyCorrectLights: false, antialias: true, alpha: true");
       scene.setAttribute("vr-mode-ui", "enabled: false");
