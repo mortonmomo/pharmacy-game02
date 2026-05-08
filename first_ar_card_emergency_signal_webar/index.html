@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>第一段 AR 卡｜緊急求救訊號</title>
+  <style>
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+    #hint { position: fixed; z-index: 20; left: 12px; right: 12px; bottom: 12px; padding: 10px 12px; border-radius: 14px; color: white; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); font-size: 14px; line-height: 1.45; }
+    #replay { position: fixed; z-index: 21; right: 12px; top: 12px; border: 0; border-radius: 999px; padding: 10px 14px; color: #061226; background: #fff; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+  </style>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+</head>
+<body>
+  <button id="replay">重播 AR</button>
+  <div id="hint">請允許相機權限，然後對準「target_card_front.png」列印圖或螢幕圖。辨識成功後會播放 12 秒 AR 動畫。</div>
+
+  <a-scene
+    mindar-image="imageTargetSrc: ./targets/first-card.mind; filterMinCF:0.0001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 5;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights: false, antialias: true, alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+    embedded>
+
+    <a-assets>
+      <img id="alert" src="./assets/alert_red_flash.png" crossorigin="anonymous">
+      <img id="slimeking" src="./assets/slimeking_hologram.png" crossorigin="anonymous">
+      <img id="distress" src="./assets/distress_message_box.png" crossorigin="anonymous">
+      <img id="question" src="./assets/dialog_kenbao_question.png" crossorigin="anonymous">
+      <img id="response" src="./assets/dialog_kenbao_response.png" crossorigin="anonymous">
+      <img id="scanline" src="./assets/hologram_scanline.png" crossorigin="anonymous">
+    </a-assets>
+
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <a-entity id="target" mindar-image-target="targetIndex: 0">
+      <a-image id="alertLayer" src="#alert" width="1.12" height="0.63" position="0 0 0.03" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+      <a-image id="hologramLayer" src="#slimeking" width="0.52" height="0.34" position="0.18 0.05 0.05" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+      <a-image id="scanlineLayer" src="#scanline" width="1.08" height="0.61" position="0 0 0.06" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+      <a-image id="distressLayer" src="#distress" width="0.78" height="0.21" position="0 -0.17 0.08" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+      <a-image id="questionLayer" src="#question" width="0.48" height="0.13" position="-0.23 0.17 0.09" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+      <a-image id="responseLayer" src="#response" width="0.43" height="0.12" position="0.24 -0.25 0.10" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    const ids = ["alertLayer", "hologramLayer", "scanlineLayer", "distressLayer", "questionLayer", "responseLayer"];
+    const layers = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+    let timers = [];
+    function opacity(id, value) { layers[id].setAttribute("material", "opacity", value); }
+    function scale(id, value) { layers[id].setAttribute("scale", `${value} ${value} ${value}`); }
+    function pos(id, x, y, z) { layers[id].setAttribute("position", `${x} ${y} ${z}`); }
+    function reset() {
+      timers.forEach(clearTimeout); timers = [];
+      ids.forEach(id => { opacity(id, 0); scale(id, 1); });
+      pos("hologramLayer", 0.18, 0.05, 0.05); pos("scanlineLayer", 0, 0, 0.06);
+    }
+    function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
+    function animatePulse(id, startMs, endMs, min=0.1, max=0.85, speed=240) {
+      let active = true;
+      at(startMs, () => {
+        const loop = () => {
+          if (!active) return;
+          const now = performance.now();
+          const v = min + (max-min) * (0.5 + 0.5 * Math.sin(now / speed));
+          opacity(id, v);
+          requestAnimationFrame(loop);
+        };
+        loop();
+      });
+      at(endMs, () => { active = false; opacity(id, 0); });
+    }
+    function animateFloat(id, startMs, endMs, baseX, baseY, baseZ) {
+      let active = true;
+      at(startMs, () => {
+        const loop = () => {
+          if (!active) return;
+          const now = performance.now();
+          const dy = Math.sin(now / 360) * 0.012;
+          const s = 1 + Math.sin(now / 460) * 0.025;
+          pos(id, baseX, baseY + dy, baseZ);
+          scale(id, s);
+          requestAnimationFrame(loop);
+        };
+        loop();
+      });
+      at(endMs, () => { active = false; scale(id, 1); });
+    }
+    function fadeIn(id, ms, target=1) {
+      const steps = 12;
+      for (let i=0;i<=steps;i++) at(ms + i*34, () => opacity(id, target * i/steps));
+    }
+    function fadeOut(id, ms) {
+      const steps = 12;
+      for (let i=0;i<=steps;i++) at(ms + i*34, () => opacity(id, 1 - i/steps));
+    }
+    function playAR() {
+      reset();
+      animatePulse("alertLayer", 0, 12000, 0.12, 0.72, 170);
+      fadeIn("hologramLayer", 1200, 0.95);
+      animateFloat("hologramLayer", 1200, 9200, 0.18, 0.05, 0.05);
+      animatePulse("scanlineLayer", 1200, 9200, 0.03, 0.22, 110);
+      fadeIn("distressLayer", 3000, 0.96);
+      fadeOut("distressLayer", 8500);
+      fadeIn("questionLayer", 6500, 1);
+      fadeOut("questionLayer", 9000);
+      fadeIn("responseLayer", 9000, 1);
+      at(12000, () => { opacity("alertLayer", 0.15); opacity("hologramLayer", 0.2); opacity("scanlineLayer", 0); });
+    }
+    const target = document.querySelector("#target");
+    target.addEventListener("targetFound", () => {
+      document.getElementById("hint").textContent = "已辨識 AR 卡｜正在播放：緊急求救訊號";
+      playAR();
+    });
+    target.addEventListener("targetLost", () => { document.getElementById("hint").textContent = "請重新對準 AR 卡。"; });
+    document.getElementById("replay").addEventListener("click", playAR);
+  </script>
+</body>
+</html>
