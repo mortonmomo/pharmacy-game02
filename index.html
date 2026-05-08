@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>第一段 AR 卡｜緊急求救訊號</title>
+  <style>
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#020612; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+    #status {
+      position: fixed; z-index: 9999; left: 12px; right: 12px; bottom: 12px;
+      padding: 12px 14px; border-radius: 14px; color: white;
+      background: rgba(0,0,0,.68); border: 1px solid rgba(255,255,255,.24);
+      font-size: 14px; line-height: 1.5; white-space: pre-wrap;
+    }
+    #replay {
+      position: fixed; z-index: 9999; right: 12px; top: 12px;
+      border: 0; border-radius: 999px; padding: 10px 14px;
+      color: #061226; background: #fff; font-weight: 700;
+      box-shadow: 0 4px 20px rgba(0,0,0,.25);
+    }
+    #fallback {
+      position: fixed; inset: 0; z-index: 1; display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(circle at center, #10234a, #020612 70%);
+      color:white; text-align:center; padding: 24px;
+    }
+    #fallback img { width:min(88vw, 760px); border-radius:18px; box-shadow:0 20px 70px rgba(0,0,0,.45); }
+    #fallback p { max-width:760px; margin:12px auto 0; opacity:.9; }
+  </style>
+</head>
+<body>
+  <button id="replay">重播 AR</button>
+  <div id="fallback">
+    <div>
+      <img src="./assets/target_card_front.png" alt="AR target preview">
+      <p>正在載入 WebAR。若長時間停在這裡，請開啟 <b>diagnostics.html</b> 檢查檔案與 CDN。</p>
+    </div>
+  </div>
+  <div id="status">初始化中……</div>
+
+  <script>
+    const statusBox = document.getElementById("status");
+    const status = (msg) => { statusBox.textContent = msg; console.log(msg); };
+    const addStatus = (msg) => { statusBox.textContent += "\n" + msg; console.log(msg); };
+
+    async function checkFile(path, label) {
+      try {
+        const res = await fetch(path, { cache: "no-store" });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        addStatus(`✓ ${label}: ${path}`);
+        return true;
+      } catch(e) {
+        addStatus(`✗ ${label}: ${path} 讀取失敗：${e.message}`);
+        return false;
+      }
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = false;
+        s.onload = () => resolve(src);
+        s.onerror = () => reject(new Error(src));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function loadFirstAvailable(name, urls, testFn) {
+      for (const url of urls) {
+        try {
+          addStatus(`載入 ${name}: ${url}`);
+          await loadScript(url);
+          await new Promise(r => setTimeout(r, 200));
+          if (!testFn || testFn()) {
+            addStatus(`✓ ${name} 載入成功`);
+            return true;
+          }
+          addStatus(`✗ ${name} 已載入但測試未通過`);
+        } catch(e) {
+          addStatus(`✗ ${name} 載入失敗：${e.message}`);
+        }
+      }
+      return false;
+    }
+
+    async function boot() {
+      status("檢查專案檔案……");
+      const required = [
+        ["./assets/target_card_front.png", "target 圖"],
+        ["./assets/alert_red_flash.png", "警報圖層"],
+        ["./assets/slimeking_hologram.png", "史萊姆王 hologram"],
+        ["./assets/distress_message_box.png", "求救訊息框"],
+        ["./assets/dialog_kenbao_question.png", "健寶驚訝對話框"],
+        ["./assets/dialog_kenbao_response.png", "健寶回應對話框"],
+        ["./assets/hologram_scanline.png", "hologram 掃描線"],
+        ["./targets/first-card.mind", "MindAR 辨識檔 first-card.mind"]
+      ];
+      let ok = true;
+      for (const [path, label] of required) {
+        ok = await checkFile(path, label) && ok;
+      }
+      if (!ok) {
+        addStatus("\n有檔案讀取失敗。最常見是：還沒把 first-card.mind 放進 targets/，或 GitHub Pages 上傳路徑錯了。");
+        return;
+      }
+
+      status("檔案檢查完成，開始載入 WebAR 程式庫……");
+      const aframeOK = await loadFirstAvailable("A-Frame", [
+        "https://aframe.io/releases/1.5.0/aframe.min.js",
+        "https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe-master.min.js"
+      ], () => !!window.AFRAME);
+
+      if (!aframeOK) {
+        addStatus("\nA-Frame 載入失敗。可能是網路或 CDN 被擋。");
+        return;
+      }
+
+      const mindarOK = await loadFirstAvailable("MindAR A-Frame", [
+        "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js",
+        "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"
+      ], () => window.AFRAME && AFRAME.components && (AFRAME.components["mindar-image"] || AFRAME.components["mindar-image-target"]));
+
+      if (!mindarOK) {
+        addStatus("\nMindAR 載入失敗。可能是 CDN 被擋。可換網路，或改用 Netlify/Vercel。");
+        return;
+      }
+
+      document.getElementById("fallback").style.display = "none";
+      createScene();
+    }
+
+    function createScene() {
+      status("WebAR 載入完成。請允許相機權限，並對準 target_card_front.png。");
+
+      const scene = document.createElement("a-scene");
+      scene.setAttribute("mindar-image", "imageTargetSrc: ./targets/first-card.mind; filterMinCF:0.0001; filterBeta:0.001; warmupTolerance:5; missTolerance:5;");
+      scene.setAttribute("color-space", "sRGB");
+      scene.setAttribute("renderer", "colorManagement: true, physicallyCorrectLights: false, antialias: true, alpha: true");
+      scene.setAttribute("vr-mode-ui", "enabled: false");
+      scene.setAttribute("device-orientation-permission-ui", "enabled: true");
+      scene.setAttribute("embedded", "");
+
+      scene.innerHTML = `
+        <a-assets>
+          <img id="alert" src="./assets/alert_red_flash.png" crossorigin="anonymous">
+          <img id="slimeking" src="./assets/slimeking_hologram.png" crossorigin="anonymous">
+          <img id="distress" src="./assets/distress_message_box.png" crossorigin="anonymous">
+          <img id="question" src="./assets/dialog_kenbao_question.png" crossorigin="anonymous">
+          <img id="response" src="./assets/dialog_kenbao_response.png" crossorigin="anonymous">
+          <img id="scanline" src="./assets/hologram_scanline.png" crossorigin="anonymous">
+        </a-assets>
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <a-entity id="target" mindar-image-target="targetIndex: 0">
+          <a-image id="alertLayer" src="#alert" width="1.12" height="0.63" position="0 0 0.03" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+          <a-image id="hologramLayer" src="#slimeking" width="0.52" height="0.34" position="0.18 0.05 0.05" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+          <a-image id="scanlineLayer" src="#scanline" width="1.08" height="0.61" position="0 0 0.06" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+          <a-image id="distressLayer" src="#distress" width="0.78" height="0.21" position="0 -0.17 0.08" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+          <a-image id="questionLayer" src="#question" width="0.48" height="0.13" position="-0.23 0.17 0.09" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+          <a-image id="responseLayer" src="#response" width="0.43" height="0.12" position="0.24 -0.25 0.10" material="transparent:true; opacity:0; alphaTest:0.01; side:double"></a-image>
+        </a-entity>
+      `;
+      document.body.appendChild(scene);
+
+      const ids = ["alertLayer", "hologramLayer", "scanlineLayer", "distressLayer", "questionLayer", "responseLayer"];
+      let timers = [];
+      const layers = () => Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+      function opacity(id, value) { const l = layers()[id]; if (l) l.setAttribute("material", "opacity", value); }
+      function scale(id, value) { const l = layers()[id]; if (l) l.setAttribute("scale", `${value} ${value} ${value}`); }
+      function pos(id, x, y, z) { const l = layers()[id]; if (l) l.setAttribute("position", `${x} ${y} ${z}`); }
+      function reset() {
+        timers.forEach(clearTimeout); timers = [];
+        ids.forEach(id => { opacity(id, 0); scale(id, 1); });
+        pos("hologramLayer", 0.18, 0.05, 0.05); pos("scanlineLayer", 0, 0, 0.06);
+      }
+      function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
+      function animatePulse(id, startMs, endMs, min=0.1, max=0.85, speed=240) {
+        let active = true;
+        at(startMs, () => {
+          const loop = () => {
+            if (!active) return;
+            const now = performance.now();
+            const v = min + (max-min) * (0.5 + 0.5 * Math.sin(now / speed));
+            opacity(id, v);
+            requestAnimationFrame(loop);
+          };
+          loop();
+        });
+        at(endMs, () => { active = false; opacity(id, 0); });
+      }
+      function animateFloat(id, startMs, endMs, baseX, baseY, baseZ) {
+        let active = true;
+        at(startMs, () => {
+          const loop = () => {
+            if (!active) return;
+            const now = performance.now();
+            const dy = Math.sin(now / 360) * 0.012;
+            const s = 1 + Math.sin(now / 460) * 0.025;
+            pos(id, baseX, baseY + dy, baseZ);
+            scale(id, s);
+            requestAnimationFrame(loop);
+          };
+          loop();
+        });
+        at(endMs, () => { active = false; scale(id, 1); });
+      }
+      function fadeIn(id, ms, target=1) {
+        const steps = 12;
+        for (let i=0;i<=steps;i++) at(ms + i*34, () => opacity(id, target * i/steps));
+      }
+      function fadeOut(id, ms) {
+        const steps = 12;
+        for (let i=0;i<=steps;i++) at(ms + i*34, () => opacity(id, 1 - i/steps));
+      }
+      function playAR() {
+        reset();
+        animatePulse("alertLayer", 0, 12000, 0.12, 0.72, 170);
+        fadeIn("hologramLayer", 1200, 0.95);
+        animateFloat("hologramLayer", 1200, 9200, 0.18, 0.05, 0.05);
+        animatePulse("scanlineLayer", 1200, 9200, 0.03, 0.22, 110);
+        fadeIn("distressLayer", 3000, 0.96);
+        fadeOut("distressLayer", 8500);
+        fadeIn("questionLayer", 6500, 1);
+        fadeOut("questionLayer", 9000);
+        fadeIn("responseLayer", 9000, 1);
+        at(12000, () => { opacity("alertLayer", 0.15); opacity("hologramLayer", 0.2); opacity("scanlineLayer", 0); });
+      }
+      window.playAR = playAR;
+      document.getElementById("replay").addEventListener("click", playAR);
+
+      setTimeout(() => {
+        const target = document.querySelector("#target");
+        target.addEventListener("targetFound", () => {
+          status("已辨識 AR 卡｜正在播放：緊急求救訊號");
+          playAR();
+        });
+        target.addEventListener("targetLost", () => status("請重新對準 AR 卡。"));
+      }, 500);
+    }
+
+    boot();
+  </script>
+</body>
+</html>

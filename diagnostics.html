@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GitHub Pages 診斷｜緊急求救訊號 AR</title>
+<style>
+body{font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;margin:32px auto;max-width:900px;padding:0 18px;line-height:1.65;color:#132033}
+.ok{color:#087f3a}.bad{color:#b00020}.box{background:#f6f8fb;border:1px solid #d9e2ee;border-radius:14px;padding:14px;margin:12px 0}
+code{background:#eef3f8;padding:2px 6px;border-radius:6px}
+</style>
+</head>
+<body>
+<h1>GitHub Pages 診斷｜緊急求救訊號 AR</h1>
+<p>這頁用來檢查是不是 GitHub Pages 路徑、檔案、CDN 或 <code>first-card.mind</code> 的問題。</p>
+<div id="out" class="box">檢查中……</div>
+
+<script>
+const files = [
+  ["index.html", "首頁"],
+  ["preview_no_camera.html", "非 AR 預覽頁"],
+  ["assets/target_card_front.png", "target 圖"],
+  ["assets/alert_red_flash.png", "警報圖層"],
+  ["assets/slimeking_hologram.png", "史萊姆王 hologram"],
+  ["assets/distress_message_box.png", "求救訊息框"],
+  ["assets/dialog_kenbao_question.png", "健寶驚訝對話框"],
+  ["assets/dialog_kenbao_response.png", "健寶回應對話框"],
+  ["assets/hologram_scanline.png", "掃描線"],
+  ["targets/first-card.mind", "MindAR 辨識檔"]
+];
+const out = document.getElementById("out");
+function line(cls, text){ out.innerHTML += `<div class="${cls}">${text}</div>`; }
+async function check(){
+  out.innerHTML = `<div>目前網址：<code>${location.href}</code></div>`;
+  out.innerHTML += `<div>基準路徑：<code>${location.origin}${location.pathname.replace(/[^\/]*$/, "")}</code></div><hr>`;
+  for(const [path, label] of files){
+    try{
+      const res = await fetch(path, {cache:"no-store"});
+      if(res.ok) line("ok", `✓ ${label}：${path}`);
+      else line("bad", `✗ ${label}：${path} → ${res.status}`);
+    }catch(e){
+      line("bad", `✗ ${label}：${path} → ${e.message}`);
+    }
+  }
+  out.innerHTML += `<hr><h2>CDN 檢查</h2>`;
+  await load("A-Frame", "https://aframe.io/releases/1.5.0/aframe.min.js", () => !!window.AFRAME);
+  await load("MindAR", "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js", () => !!window.AFRAME);
+  out.innerHTML += `<hr><p>如果 <code>targets/first-card.mind</code> 是 404，請先用 <code>tools/generate-target.html</code> 產生並上傳。</p>`;
+}
+function load(name, src, test){
+  return new Promise(resolve=>{
+    const s=document.createElement("script");
+    s.src=src;
+    s.onload=()=>{ line("ok", `✓ ${name} CDN 載入成功`); resolve(); };
+    s.onerror=()=>{ line("bad", `✗ ${name} CDN 載入失敗`); resolve(); };
+    document.head.appendChild(s);
+  });
+}
+check();
+</script>
+</body>
+</html>
